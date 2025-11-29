@@ -1,0 +1,73 @@
+/* Component-specific styles */
+
+/* PageHeader ----------------------------------------------------------- */
+.page-header .back-button {
+  min-width: 44px;
+  min-height: 44px;
+  transition: opacity 0.2s ease;
+}
+
+.page-header .back-button:hover {
+  opacity: 0.7;
+}
+
+.page-header .back-button:active {
+  opacity: 0.5;
+}
+
+/* Form helpers --------------------------------------------------------- */
+.required-mark {
+  color: var(--ion-color-danger);
+  margin-left: 2px;
+}
+
+/* Data list & card helpers -------------------------------------------- */
+.item-date {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--ion-color-medium);
+}
+
+.memo-text,
+.price-text {
+  margin: 0.35rem 0;
+  font-size: 0.9rem;
+  color: var(--ion-color-medium);
+}
+
+.price-text {
+  font-weight: 600;
+}
+
+.expiry-date-text {
+  margin: 0.25rem 0;
+  color: var(--ion-color-danger);
+  font-weight: 600;
+}
+
+.ingredient-index {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--ion-color-medium);
+}
+
+/* Metric displays ------------------------------------------------------ */
+.stat-value,
+.health-value {
+  font-size: 1.1rem;
+  font-weight: bold;
+}
+
+.bmi-category {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--ion-color-medium);
+}
+
+.bmi-category-large {
+  margin: 0.5rem 0;
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: var(--ion-color-dark);
+}
+

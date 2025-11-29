@@ -1,0 +1,82 @@
+/* Custom Ionic styles for Food Management App */
+
+/* Layout helpers ---------------------------------------------------------- */
+.ion-padding-top {
+  padding-top: 16px;
+}
+
+ion-button + ion-button {
+  margin-top: 8px;
+}
+
+ion-card + ion-card {
+  margin-top: 16px;
+}
+
+/* Modal spacing ----------------------------------------------------------- */
+ion-modal ion-content {
+  --padding-start: 16px;
+  --padding-end: 16px;
+  --padding-top: 16px;
+  --padding-bottom: 16px;
+}
+
+/* Typography -------------------------------------------------------------- */
+ion-item ion-label h2 {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+ion-item ion-label p {
+  margin: 2px 0;
+  font-size: 0.9em;
+}
+
+/* Chip spacing ------------------------------------------------------------ */
+ion-chip {
+  margin: 2px 4px 2px 0;
+}
+
+/* Button icon spacing ----------------------------------------------------- */
+ion-button ion-icon[slot="start"] {
+  margin-inline-end: 8px;
+}
+
+ion-button ion-icon[slot="end"] {
+  margin-inline-start: 8px;
+}
+
+/* Responsive adjustments -------------------------------------------------- */
+@media (max-width: 768px) {
+  ion-content {
+    --padding-start: 12px;
+    --padding-end: 12px;
+  }
+
+  ion-card {
+    margin: 8px 0;
+  }
+
+  ion-button {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 375px) {
+  ion-content {
+    --padding-start: 8px;
+    --padding-end: 8px;
+  }
+
+  ion-card {
+    margin: 6px 0;
+  }
+
+  ion-card-header {
+    padding: 12px;
+  }
+
+  ion-card-content {
+    padding: 12px;
+  }
+}

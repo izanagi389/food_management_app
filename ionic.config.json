@@ -1,0 +1,8 @@
+{
+  "name": "food-management-app",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "vue",
+  "serveUrl": "http://localhost:3000"
+}
