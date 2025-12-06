@@ -219,6 +219,13 @@ export class SQLiteManager {
   }
 
   /**
+   * カテゴリを更新
+   */
+  async updateCategory(id: number, category: Partial<Category>): Promise<DatabaseResult> {
+    return await this.categoryManager.updateCategory(id, category)
+  }
+
+  /**
    * カテゴリを削除
    */
   async deleteCategory(id: number): Promise<DatabaseResult> {

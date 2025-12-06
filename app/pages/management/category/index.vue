@@ -41,15 +41,33 @@
         :get-name-function="(item: Category) => item.name"
         :get-description-function="(item: Category) => `ID: ${item.id}`"
         :get-date-function="(item: Category) => `登録日: ${formatDate(item.created_at)}`"
+        @edit="openEditCategoryModal"
         @delete="deleteCategory"
       >
         <template #item="{ item }">
           <ion-icon :icon="pricetag" slot="start" color="primary"></ion-icon>
           <ion-label>
-            <h2>{{ item.name }}</h2>
-            <p>ID: {{ item.id }}</p>
-            <p>登録日: {{ formatDate(item.created_at) }}</p>
+            <h2>{{ (item as Category).name }}</h2>
+            <p>ID: {{ (item as Category).id }}</p>
+            <p>登録日: {{ formatDate((item as Category).created_at) }}</p>
           </ion-label>
+          <ion-button 
+            slot="end" 
+            fill="clear" 
+            @click="openEditCategoryModal(item as Category)" 
+            :disabled="isLoading"
+          >
+            <ion-icon :icon="createOutline"></ion-icon>
+          </ion-button>
+          <ion-button 
+            slot="end" 
+            fill="clear" 
+            color="danger" 
+            @click="deleteCategory((item as Category).id!)" 
+            :disabled="isLoading"
+          >
+            <ion-icon :icon="trashOutline"></ion-icon>
+          </ion-button>
         </template>
       </DataListCard>
 
@@ -70,6 +88,29 @@
             label="カテゴリ名"
             type="text"
             v-model="categoryForm.name"
+            placeholder="カテゴリ名を入力"
+            :required="true"
+          />
+        </template>
+      </FormModal>
+
+      <!-- カテゴリ編集モーダル -->
+      <FormModal
+        :is-open="showEditModal"
+        :title="`カテゴリを編集: ${editingCategory?.name || ''}`"
+        :is-loading="isLoading"
+        :is-form-valid="isEditFormValid"
+        submit-text="更新"
+        loading-text="更新中..."
+        :submit-icon="saveOutline"
+        @close="closeEditCategoryModal"
+        @submit="updateCategoryData"
+      >
+        <template #form-fields>
+          <FormField
+            label="カテゴリ名"
+            type="text"
+            v-model="editForm.name"
             placeholder="カテゴリ名を入力"
             :required="true"
           />
@@ -102,11 +143,17 @@ import {
   addOutline, 
   closeOutline, 
   trashOutline, 
-  pricetag
+  pricetag,
+  saveOutline,
+  createOutline
 } from 'ionicons/icons'
 
 // ユーティリティとマネージャー
 import { formatDate, getPageMeta } from '~/utils/helpers/pageUtils'
+
+// 共通コンポーネント
+import FormModal from '~/components/common/FormModal.vue'
+import FormField from '~/components/common/FormField.vue'
 
 // 共通composables
 import { usePageState } from '~/composables/usePageState'
@@ -144,8 +191,11 @@ const {
 
 const {
   showAddModal,
+  showEditModal,
   openAddModal,
   closeAddModal,
+  openEditModal,
+  closeEditModal,
   resetModalState
 } = useModal()
 
@@ -200,9 +250,22 @@ const {
 /** カテゴリ追加モーダルの表示状態（共通モーダルを使用） */
 const showAddCategoryModal = computed(() => showAddModal.value)
 
+/** 編集中のカテゴリ */
+const editingCategory = ref<Category | null>(null)
+
+/** 編集フォーム */
+const editForm = ref({
+  name: ''
+})
+
 /** フォームのバリデーション */
 const isFormValid = computed((): boolean => {
   return validateForm(['name'])
+})
+
+/** 編集フォームのバリデーション */
+const isEditFormValid = computed((): boolean => {
+  return editForm.value.name.trim() !== ''
 })
 
 
@@ -274,7 +337,64 @@ const closeAddCategoryModal = (): void => {
   resetForm()
 }
 
+/**
+ * カテゴリ編集モーダルを開く
+ * @param item - 編集対象のカテゴリ
+ */
+const openEditCategoryModal = (item: Category): void => {
+  editingCategory.value = item
+  editForm.value = {
+    name: item.name || ''
+  }
+  openEditModal()
+}
+
+/**
+ * カテゴリ編集モーダルを閉じる
+ */
+const closeEditCategoryModal = (): void => {
+  closeEditModal()
+  editingCategory.value = null
+  editForm.value = {
+    name: ''
+  }
+}
+
 // =================== データ削除機能 ===================
+
+/**
+ * カテゴリデータを更新
+ */
+const updateCategoryData = async (): Promise<void> => {
+  if (!editingCategory.value?.id) return
+
+  if (!editForm.value.name.trim()) {
+    setSuccessMessage('カテゴリ名を入力してください')
+    return
+  }
+
+  const updateData: Partial<Category> = {
+    name: editForm.value.name.trim()
+  }
+
+  try {
+    isLoading.value = true
+    result.value = 'カテゴリを更新中...'
+
+    const response = await dbManager.updateCategory(editingCategory.value.id, updateData)
+    result.value = response.message
+
+    if (response.success) {
+      await getAllCategories()
+      closeEditCategoryModal()
+    }
+  } catch (error) {
+    result.value = `カテゴリ更新エラー: ${error}`
+    console.error('カテゴリ更新エラー:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
 
 /**
  * カテゴリを削除
@@ -288,10 +408,22 @@ const deleteCategory = async (id: number): Promise<void> => {
     return
   }
 
-  await deleteData(
-    () => dbManager.deleteCategory(id),
-    'カテゴリ'
-  )
+  try {
+    isLoading.value = true
+    result.value = `カテゴリ「${categoryName}」を削除中...`
+
+    const response = await dbManager.deleteCategory(id)
+    result.value = response.message
+
+    if (response.success) {
+      await getAllCategories()
+    }
+  } catch (error) {
+    result.value = `カテゴリ削除エラー: ${error}`
+    console.error('カテゴリ削除エラー:', error)
+  } finally {
+    isLoading.value = false
+  }
 }
 
 // =================== ライフサイクル管理 ===================

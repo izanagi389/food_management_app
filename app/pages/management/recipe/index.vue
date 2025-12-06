@@ -54,7 +54,7 @@
         :get-id-function="(item: Recipe) => item.id"
         :get-name-function="(item: Recipe) => item.name"
         :get-description-function="(item: Recipe) => item.description || ''"
-        :show-edit-button="false"
+        @edit="openEditRecipeModal"
         @delete="deleteRecipe"
       >
         <template #item="{ item }">
@@ -116,6 +116,23 @@
             </div>
             <p class="item-date">登録日: {{ formatDate(item.created_at || item.updated_at) }}</p>
           </ion-label>
+          <ion-button 
+            slot="end" 
+            fill="clear" 
+            @click="openEditRecipeModal(item as Recipe)" 
+            :disabled="isLoading"
+          >
+            <ion-icon :icon="createOutline"></ion-icon>
+          </ion-button>
+          <ion-button 
+            slot="end" 
+            fill="clear" 
+            color="danger" 
+            @click="deleteRecipe((item as Recipe).id!)" 
+            :disabled="isLoading"
+          >
+            <ion-icon :icon="trashOutline"></ion-icon>
+          </ion-button>
         </template>
       </DataListCard>
 
@@ -420,6 +437,229 @@
           </form>
         </ion-content>
       </ion-modal>
+
+      <!-- レシピ編集モーダル -->
+      <ion-modal :is-open="showEditRecipeModal" @did-dismiss="closeEditRecipeModal">
+        <ion-header>
+          <ion-toolbar>
+            <ion-title>レシピを編集: {{ editingRecipe?.name || '' }}</ion-title>
+            <ion-buttons slot="end">
+              <ion-button @click="closeEditRecipeModal">
+                <ion-icon :icon="closeOutline"></ion-icon>
+              </ion-button>
+            </ion-buttons>
+          </ion-toolbar>
+        </ion-header>
+        
+        <ion-content class="ion-padding">
+          <form @submit.prevent="updateRecipeData">
+            <ion-item>
+              <ion-label position="stacked">レシピ名 *</ion-label>
+              <ion-input v-model="editName" placeholder="レシピ名を入力" required></ion-input>
+            </ion-item>
+            
+            <ion-item>
+              <ion-label position="stacked">説明 (任意)</ion-label>
+              <ion-textarea v-model="editDescription" placeholder="レシピの説明を入力" :rows="3"></ion-textarea>
+            </ion-item>
+            
+            <!-- 食材選択セクション -->
+            <ion-item>
+              <ion-label>
+                <h3>食材選択</h3>
+                <p>レシピに使用する食材を選択してください</p>
+              </ion-label>
+            </ion-item>
+
+            <ion-item>
+              <ion-label position="stacked">食材 *</ion-label>
+              <ion-select v-model="editSelectedIngredientId" placeholder="食材を選択" :disabled="availableIngredients.length === 0" @ion-change="onEditIngredientSelectChange">
+                <ion-select-option v-for="ingredient in availableIngredients" :key="ingredient.id" :value="ingredient.id">
+                  {{ ingredient.name }}
+                </ion-select-option>
+                <ion-select-option value="add-new">
+                  ➕ 新しい食材を追加
+                </ion-select-option>
+              </ion-select>
+            </ion-item>
+
+            <ion-item v-if="availableIngredients.length === 0">
+              <ion-label color="warning">
+                <p>食材が登録されていません。</p>
+              </ion-label>
+            </ion-item>
+
+            <ion-item>
+              <ion-label position="stacked">使用量 (任意)</ion-label>
+              <ion-input v-model="editIngredientQuantity" type="number" placeholder="使用量" min="0" step="0.1"></ion-input>
+            </ion-item>
+
+            <ion-item>
+              <ion-label position="stacked">単位 (任意)</ion-label>
+              <ion-input v-model="editIngredientUnit" placeholder="単位 (例: g, ml, 個)"></ion-input>
+            </ion-item>
+
+            <ion-item>
+              <ion-label position="stacked">備考 (任意)</ion-label>
+              <ion-input v-model="editIngredientNotes" placeholder="備考"></ion-input>
+            </ion-item>
+
+            <ion-item>
+              <ion-button expand="block" fill="outline" @click="addEditIngredientToRecipe" :disabled="!editSelectedIngredientId">
+                <ion-icon :icon="addOutline" slot="start"></ion-icon>
+                食材を追加
+              </ion-button>
+            </ion-item>
+
+            <!-- 選択された食材一覧 -->
+            <ion-item v-if="editSelectedIngredients.length > 0">
+              <ion-label>
+                <h3>選択された食材 ({{ editSelectedIngredients.length }}件)</h3>
+              </ion-label>
+            </ion-item>
+
+            <ion-list v-if="editSelectedIngredients.length > 0">
+              <ion-item v-for="(ingredient, index) in editSelectedIngredients" :key="index">
+                <ion-label>
+                  <h3>{{ getIngredientName(ingredient.ingredient_id) }}</h3>
+                  <p v-if="ingredient.quantity || ingredient.unit">
+                    {{ ingredient.quantity || '' }}{{ ingredient.unit || '' }}
+                  </p>
+                  <p v-if="ingredient.notes">{{ ingredient.notes }}</p>
+                  <p class="ingredient-index">#{{ index + 1 }}</p>
+                </ion-label>
+                <ion-button slot="end" fill="clear" color="danger" @click="removeEditIngredientFromRecipe(index)">
+                  <ion-icon :icon="trashOutline"></ion-icon>
+                </ion-button>
+              </ion-item>
+            </ion-list>
+
+            <!-- 調理手順 -->
+            <ion-card class="instruction-card">
+              <ion-card-header>
+                <ion-card-title>調理手順</ion-card-title>
+                <p class="instruction-card-description">ステップごとにタイムライン形式で手順を登録できます。</p>
+              </ion-card-header>
+              <ion-card-content>
+                <div
+                  v-for="(step, index) in editInstructionSteps"
+                  :key="step.id"
+                  class="instruction-step-form"
+                >
+                  <div class="instruction-step-toolbar">
+                    <ion-chip color="primary">
+                      <ion-label>Step {{ index + 1 }}</ion-label>
+                    </ion-chip>
+
+                    <div class="instruction-step-actions">
+                      <ion-button
+                        size="small"
+                        fill="clear"
+                        @click="moveEditInstructionStep(index, 'up')"
+                        :disabled="index === 0"
+                      >
+                        <ion-icon :icon="chevronUpOutline"></ion-icon>
+                      </ion-button>
+                      <ion-button
+                        size="small"
+                        fill="clear"
+                        @click="moveEditInstructionStep(index, 'down')"
+                        :disabled="index === editInstructionSteps.length - 1"
+                      >
+                        <ion-icon :icon="chevronDownOutline"></ion-icon>
+                      </ion-button>
+                      <ion-button
+                        size="small"
+                        fill="clear"
+                        color="danger"
+                        @click="removeEditInstructionStep(index)"
+                      >
+                        <ion-icon :icon="trashOutline"></ion-icon>
+                      </ion-button>
+                    </div>
+                  </div>
+
+                  <ion-item lines="full">
+                    <ion-label position="stacked">ステップタイトル (任意)</ion-label>
+                    <ion-input
+                      v-model="step.title"
+                      placeholder="例: 野菜を切る"
+                    ></ion-input>
+                  </ion-item>
+
+                  <ion-item lines="full">
+                    <ion-label position="stacked">説明 *</ion-label>
+                    <ion-textarea
+                      v-model="step.description"
+                      auto-grow
+                      :rows="3"
+                      placeholder="手順の内容を入力してください"
+                    ></ion-textarea>
+                  </ion-item>
+
+                  <ion-item lines="full">
+                    <ion-label position="stacked">目安時間 (分)</ion-label>
+                    <ion-input
+                      v-model.number="step.durationMinutes"
+                      type="number"
+                      min="0"
+                      placeholder="例: 5"
+                    ></ion-input>
+                  </ion-item>
+
+                  <ion-item lines="none">
+                    <ion-label position="stacked">メモ (任意)</ion-label>
+                    <ion-textarea
+                      v-model="step.note"
+                      auto-grow
+                      :rows="2"
+                      placeholder="コツや注意点を入力してください"
+                    ></ion-textarea>
+                  </ion-item>
+                </div>
+
+                <div class="instruction-actions">
+                  <ion-button expand="block" fill="outline" color="medium" @click="addEditInstructionStep">
+                    <ion-icon :icon="addOutline" slot="start"></ion-icon>
+                    手順を追加
+                  </ion-button>
+                </div>
+              </ion-card-content>
+            </ion-card>
+            
+            <ion-item>
+              <ion-label position="stacked">調理時間 (任意)</ion-label>
+              <ion-input v-model="editCookingTime" type="number" placeholder="調理時間 (分)" min="0"></ion-input>
+            </ion-item>
+            
+            <ion-item>
+              <ion-label position="stacked">人数 (任意)</ion-label>
+              <ion-input v-model="editServings" type="number" placeholder="人数" min="1"></ion-input>
+            </ion-item>
+            
+            <ion-item>
+              <ion-label position="stacked">難易度 (任意)</ion-label>
+              <ion-select v-model="editDifficulty" placeholder="難易度を選択">
+                <ion-select-option value="">難易度を選択</ion-select-option>
+                <ion-select-option value="easy">簡単</ion-select-option>
+                <ion-select-option value="medium">普通</ion-select-option>
+                <ion-select-option value="hard">難しい</ion-select-option>
+              </ion-select>
+            </ion-item>
+            
+            <div class="ion-padding-top">
+              <ion-button expand="block" type="submit" :disabled="isLoading || !editName.trim()">
+                <ion-icon :icon="saveOutline" slot="start"></ion-icon>
+                {{ isLoading ? '更新中...' : '更新' }}
+              </ion-button>
+              <ion-button expand="block" fill="outline" @click="closeEditRecipeModal">
+                <ion-icon :icon="closeOutline" slot="start"></ion-icon>
+                キャンセル
+              </ion-button>
+            </div>
+          </form>
+        </ion-content>
+      </ion-modal>
     </ion-content>
   </ion-page>
 </template>
@@ -462,7 +702,9 @@ import {
   bookOutline,
   informationCircleOutline,
   chevronUpOutline,
-  chevronDownOutline
+  chevronDownOutline,
+  createOutline,
+  saveOutline
 } from 'ionicons/icons'
 
 // ユーティリティとマネージャー
@@ -606,6 +848,48 @@ const showAddRecipeModal = ref<boolean>(false)
 
 /** 食材追加モーダルの表示状態 */
 const showAddIngredientModal = ref<boolean>(false)
+
+/** レシピ編集モーダルの表示状態 */
+const showEditRecipeModal = ref<boolean>(false)
+
+/** 編集中のレシピ */
+const editingRecipe = ref<Recipe | null>(null)
+
+// =================== 編集フォーム管理 ===================
+
+/** 編集用レシピ名 */
+const editName = ref<string>('')
+
+/** 編集用説明 */
+const editDescription = ref<string>('')
+
+/** 編集用調理時間 */
+const editCookingTime = ref<number | null>(null)
+
+/** 編集用人数 */
+const editServings = ref<number | null>(null)
+
+/** 編集用難易度 */
+const editDifficulty = ref<'easy' | 'medium' | 'hard' | ''>('')
+
+/** 編集用手順 */
+const editInstructionSteps = ref<InstructionStepForm[]>([])
+const editInstructionStepCounter = ref<number>(1)
+
+/** 編集用選択された食材ID */
+const editSelectedIngredientId = ref<number | null>(null)
+
+/** 編集用食材数量 */
+const editIngredientQuantity = ref<number | null>(null)
+
+/** 編集用食材単位 */
+const editIngredientUnit = ref<string>('')
+
+/** 編集用食材備考 */
+const editIngredientNotes = ref<string>('')
+
+/** 編集用選択された食材一覧 */
+const editSelectedIngredients = ref<RecipeIngredient[]>([])
 
 // =================== 新規食材追加フォーム ===================
 
@@ -1191,6 +1475,302 @@ const removeIngredientFromRecipe = (index: number) => {
 const getIngredientName = (ingredientId: number): string => {
   const ingredient = availableIngredients.value.find(ing => ing.id === ingredientId)
   return ingredient?.name || '不明な食材'
+}
+
+// =================== 編集用手順管理 ===================
+
+const createEditInstructionStep = (): InstructionStepForm => {
+  const step: InstructionStepForm = {
+    id: editInstructionStepCounter.value++,
+    title: '',
+    description: '',
+    durationMinutes: null,
+    note: ''
+  }
+  return step
+}
+
+const addEditInstructionStep = (): void => {
+  editInstructionSteps.value.push(createEditInstructionStep())
+}
+
+const removeEditInstructionStep = (index: number): void => {
+  editInstructionSteps.value.splice(index, 1)
+  if (editInstructionSteps.value.length === 0) {
+    addEditInstructionStep()
+  }
+}
+
+const moveEditInstructionStep = (index: number, direction: 'up' | 'down'): void => {
+  const targetIndex = direction === 'up' ? index - 1 : index + 1
+  if (targetIndex < 0 || targetIndex >= editInstructionSteps.value.length) {
+    return
+  }
+  const steps = [...editInstructionSteps.value]
+  const currentStep = steps[index]
+  const targetStep = steps[targetIndex]
+  if (!currentStep || !targetStep) {
+    return
+  }
+  steps[index] = targetStep
+  steps[targetIndex] = currentStep
+  editInstructionSteps.value = steps
+}
+
+const resetEditInstructionSteps = (): void => {
+  editInstructionSteps.value = []
+  editInstructionStepCounter.value = 1
+}
+
+const ensureEditInstructionStep = (): void => {
+  if (editInstructionSteps.value.length === 0) {
+    addEditInstructionStep()
+  }
+}
+
+// =================== 編集用食材管理 ===================
+
+/**
+ * 食材選択の変更を処理（編集モーダル用）
+ * @param event - 選択変更イベント
+ */
+const onEditIngredientSelectChange = (event: any): void => {
+  const selectedValue = event.detail.value
+  
+  if (selectedValue === 'add-new') {
+    openAddIngredientModal()
+    editSelectedIngredientId.value = null
+  }
+}
+
+/**
+ * レシピに食材を追加（編集モーダル用）
+ */
+const addEditIngredientToRecipe = () => {
+  if (!editSelectedIngredientId.value) return
+
+  const newIngredient: RecipeIngredient = {
+    recipe_id: editingRecipe.value?.id || 0,
+    ingredient_id: editSelectedIngredientId.value,
+    quantity: editIngredientQuantity.value || undefined,
+    unit: editIngredientUnit.value || undefined,
+    notes: editIngredientNotes.value || undefined
+  }
+
+  editSelectedIngredients.value.push(newIngredient)
+
+  // フォームをリセット
+  editSelectedIngredientId.value = null
+  editIngredientQuantity.value = null
+  editIngredientUnit.value = ''
+  editIngredientNotes.value = ''
+
+  result.value = '食材を追加しました'
+}
+
+/**
+ * レシピから食材を削除（編集モーダル用）
+ */
+const removeEditIngredientFromRecipe = (index: number) => {
+  editSelectedIngredients.value.splice(index, 1)
+  result.value = '食材を削除しました'
+}
+
+// =================== 編集モーダル管理機能 ===================
+
+/**
+ * レシピ編集モーダルを開く
+ * @param item - 編集対象のレシピ
+ */
+const openEditRecipeModal = async (item: Recipe): Promise<void> => {
+  editingRecipe.value = item
+  
+  // 基本情報を読み込む
+  editName.value = item.name || ''
+  editDescription.value = item.description || ''
+  editCookingTime.value = item.cooking_time || null
+  editServings.value = item.servings || null
+  editDifficulty.value = (item.difficulty as 'easy' | 'medium' | 'hard' | '') || ''
+  
+  // 手順を読み込む
+  resetEditInstructionSteps()
+  if (item.instruction_steps && item.instruction_steps.length > 0) {
+    item.instruction_steps.forEach((step) => {
+      editInstructionSteps.value.push({
+        id: editInstructionStepCounter.value++,
+        title: step.title || '',
+        description: step.description || '',
+        durationMinutes: step.durationMinutes || null,
+        note: step.note || ''
+      })
+    })
+  } else {
+    ensureEditInstructionStep()
+  }
+  
+  // 食材を読み込む
+  editSelectedIngredients.value = []
+  if (item.id) {
+    try {
+      const ingredientsResponse = await dbManager.getRecipeIngredients(item.id)
+      if (ingredientsResponse.success && ingredientsResponse.data) {
+        editSelectedIngredients.value = ingredientsResponse.data as RecipeIngredient[]
+      }
+    } catch (error) {
+      console.error('レシピ食材取得エラー:', error)
+    }
+  }
+  
+  // 利用可能な食材を読み込む
+  await loadAvailableIngredients()
+  
+  showEditRecipeModal.value = true
+}
+
+/**
+ * レシピ編集モーダルを閉じる
+ */
+const closeEditRecipeModal = (): void => {
+  showEditRecipeModal.value = false
+  
+  // フォームをリセット
+  editingRecipe.value = null
+  editName.value = ''
+  editDescription.value = ''
+  editCookingTime.value = null
+  editServings.value = null
+  editDifficulty.value = ''
+  
+  // 食材選択をリセット
+  editSelectedIngredients.value = []
+  editSelectedIngredientId.value = null
+  editIngredientQuantity.value = null
+  editIngredientUnit.value = ''
+  editIngredientNotes.value = ''
+
+  // 手順をリセット
+  resetEditInstructionSteps()
+}
+
+/**
+ * 保存用に編集フォームの手順データを整形
+ */
+const sanitizeEditInstructionStepsForSave = (): RecipeInstructionStep[] => {
+  return editInstructionSteps.value
+    .map((step, index) => {
+      const description = step.description.trim()
+      if (!description) {
+        return null
+      }
+
+      const title = step.title.trim()
+      const note = step.note.trim()
+      const durationCandidate = step.durationMinutes
+
+      return {
+        order: index + 1,
+        title: title.length > 0 ? title : undefined,
+        description,
+        durationMinutes:
+          typeof durationCandidate === 'number' && !Number.isNaN(durationCandidate)
+            ? Math.max(0, Math.round(durationCandidate))
+            : undefined,
+        note: note.length > 0 ? note : undefined
+      } as RecipeInstructionStep
+    })
+    .filter((step): step is RecipeInstructionStep => step !== null)
+}
+
+/**
+ * レシピデータを更新
+ */
+const updateRecipeData = async (): Promise<void> => {
+  if (!editingRecipe.value?.id) return
+
+  const sanitizedSteps = sanitizeEditInstructionStepsForSave()
+
+  if (sanitizedSteps.length === 0) {
+    result.value = '調理手順を1つ以上入力してください'
+    return
+  }
+
+  const instructionPayload = JSON.stringify(sanitizedSteps)
+
+  const updateData: Partial<Recipe> = {
+    name: editName.value,
+    description: editDescription.value.trim() || undefined,
+    instructions: instructionPayload,
+    cooking_time: editCookingTime.value || undefined,
+    servings: editServings.value || undefined,
+    difficulty: editDifficulty.value || undefined,
+  }
+
+  try {
+    isLoading.value = true
+    result.value = 'レシピを更新中...'
+
+    const response = await dbManager.updateRecipe(editingRecipe.value.id, updateData)
+    
+    if (response.success) {
+      result.value = 'レシピを更新しました。食材の関連付けを更新中...'
+      
+      // 既存の食材関連付けを削除
+      if (editingRecipe.value.id) {
+        try {
+          const existingIngredientsResponse = await dbManager.getRecipeIngredients(editingRecipe.value.id)
+          if (existingIngredientsResponse.success && existingIngredientsResponse.data) {
+            const existingIngredients = existingIngredientsResponse.data as any[]
+            for (const existingIngredient of existingIngredients) {
+              try {
+                await dbManager.removeIngredientFromRecipe(
+                  editingRecipe.value.id!,
+                  existingIngredient.ingredient_id
+                )
+              } catch (error) {
+                console.warn('既存食材関連付けの削除に失敗:', error)
+              }
+            }
+          }
+        } catch (error) {
+          console.warn('既存食材関連付けの取得に失敗:', error)
+        }
+      }
+      
+      // 新しい食材関連付けを追加
+      if (editSelectedIngredients.value.length > 0 && editingRecipe.value.id) {
+        for (const ingredient of editSelectedIngredients.value) {
+          try {
+            await dbManager.addIngredientToRecipe(
+              editingRecipe.value.id,
+              ingredient.ingredient_id,
+              ingredient.quantity,
+              ingredient.unit,
+              ingredient.notes
+            )
+          } catch (error) {
+            console.error('食材関連付けエラー:', error)
+            result.value = `レシピは更新されましたが、食材の関連付けでエラーが発生しました: ${error}`
+          }
+        }
+        
+        result.value = 'レシピと食材の関連付けが更新されました'
+      } else {
+        result.value = response.message
+      }
+      
+      // 成功時はモーダルを閉じる
+      closeEditRecipeModal()
+    } else {
+      result.value = response.message
+    }
+  } catch (error) {
+    result.value = `レシピ更新エラー: ${error}`
+    console.error('レシピ更新エラー:', error)
+  } finally {
+    // データを再取得
+    await getAllRecipes()
+    isLoading.value = false
+  }
 }
 
 // =====================================

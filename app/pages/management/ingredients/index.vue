@@ -283,6 +283,17 @@
                         {{ isLoading ? '処理中...' : '全データクリア' }}
                     </ion-button>
 
+                    <ion-button 
+                        v-if="dataCount === 0"
+                        expand="block" 
+                        fill="outline" 
+                        color="tertiary" 
+                        @click="insertTestData"
+                        :disabled="isLoading">
+                        <ion-icon :icon="cubeOutline" slot="start"></ion-icon>
+                        {{ isLoading ? '処理中...' : '初期の食品データを追加' }}
+                    </ion-button>
+
                     <ion-button expand="block" color="primary" @click="openAddModal" :disabled="isLoading">
                         <ion-icon :icon="addOutline" slot="start"></ion-icon>
                         {{ isLoading ? '処理中...' : '新しい食品を追加' }}
@@ -331,12 +342,17 @@ import {
     restaurantOutline,
     listOutline,
     linkOutline,
-    saveOutline
+    saveOutline,
+    cubeOutline
 } from 'ionicons/icons'
 
 // ユーティリティとマネージャー
 import { SQLiteManager } from '~/utils/managers/SQLiteManager'
 import { formatDate, getPageMeta, showConfirmDialog } from '~/utils/helpers/pageUtils'
+
+// 共通コンポーネント
+import FormModal from '~/components/common/FormModal.vue'
+import FormField from '~/components/common/FormField.vue'
 
 // 共通composables
 import { usePageState } from '~/composables/usePageState'
@@ -680,15 +696,44 @@ const insertData = async () => {
  * テストデータを挿入
  */
 const insertTestData = async () => {
-    await executeAsync(
-        () => dbManager.insertTestData(),
-        'テストデータを挿入中...',
-        async (response) => {
-            if (response.success) {
-                await getAllData()
+    try {
+        isLoading.value = true
+        result.value = '初期データを追加中...'
+        
+        // まずカテゴリが存在するか確認
+        const categoriesResponse = await dbManager.getAllCategories()
+        
+        // カテゴリが存在しない場合は初期カテゴリを追加
+        if (!categoriesResponse.success || !categoriesResponse.data || categoriesResponse.data.length === 0) {
+            result.value = 'カテゴリが存在しません。初期カテゴリを追加中...'
+            const insertCategoriesResponse = await dbManager.insertInitialCategories()
+            
+            if (!insertCategoriesResponse.success) {
+                result.value = `初期カテゴリの追加に失敗しました: ${insertCategoriesResponse.message}`
+                isLoading.value = false
+                return
             }
+            
+            // カテゴリ一覧を更新
+            await getAllCategories()
+            result.value = '初期カテゴリを追加しました。食品データを追加中...'
         }
-    )
+        
+        // テストデータを挿入
+        const testDataResponse = await dbManager.insertTestData()
+        
+        if (testDataResponse.success) {
+            result.value = testDataResponse.message
+            await getAllData()
+        } else {
+            result.value = `食品データの追加に失敗しました: ${testDataResponse.message}`
+        }
+    } catch (error) {
+        result.value = `初期データ追加エラー: ${error}`
+        console.error('初期データ追加エラー:', error)
+    } finally {
+        isLoading.value = false
+    }
 }
 
 

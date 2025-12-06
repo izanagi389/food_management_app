@@ -149,6 +149,123 @@ export class CategoryManager extends BaseManager {
   }
 
   /**
+   * カテゴリを更新
+   */
+  async updateCategory(id: number, category: Partial<Category>): Promise<DatabaseResult> {
+    try {
+      this.addDebugLog(`カテゴリを更新中 (ID: ${id})`)
+      
+      // IDのバリデーション
+      const idValidation = this.validator.validateId(id, 'ID')
+      if (!idValidation.isValid) {
+        return {
+          success: false,
+          message: `データが無効です: ${idValidation.errors.join(', ')}`
+        }
+      }
+      
+      // 更新データのバリデーション
+      if (category.name !== undefined) {
+        const validation = this.validator.validateCategory({ name: category.name })
+        if (!validation.isValid) {
+          this.addDebugLog(`バリデーションエラー: ${JSON.stringify(validation.errors)}`)
+          return {
+            success: false,
+            message: `データが無効です: ${validation.errors.join(', ')}`
+          }
+        }
+      }
+      
+      // Webプラットフォームの場合はWebストレージを更新
+      if (this.isWeb()) {
+        this.addDebugLog('Webプラットフォーム: Webストレージのカテゴリデータを更新します')
+        
+        // 現在のカテゴリデータを取得
+        const currentCategoriesResult = this.getCategoriesFromWebStorage()
+        const currentCategories = currentCategoriesResult.success ? (currentCategoriesResult.data || []) : []
+        
+        // 更新対象のカテゴリを検索
+        const categoryIndex = currentCategories.findIndex((c: any) => c.id === id)
+        if (categoryIndex === -1) {
+          return {
+            success: false,
+            message: `ID ${id} のカテゴリが見つかりません`
+          }
+        }
+        
+        // カテゴリデータを更新
+        const updatedCategory = { ...currentCategories[categoryIndex] }
+        
+        if (category.name !== undefined) {
+          updatedCategory.name = category.name.trim()
+        }
+        
+        updatedCategory.updated_at = new Date().toISOString()
+        
+        // カテゴリデータを更新
+        const updatedCategories = [...currentCategories]
+        updatedCategories[categoryIndex] = updatedCategory
+        
+        // Webストレージに保存
+        this.webStorageManager.saveCategoriesToLocal(updatedCategories)
+        this.webStorageManager.saveCategoriesToSession(updatedCategories)
+        this.webStorageManager.saveLastSyncTime()
+        
+        return {
+          success: true,
+          message: 'Webストレージのカテゴリデータを更新しました',
+          data: updatedCategory
+        }
+      }
+      
+      // SQLite更新処理
+      const updateFields = []
+      const values = []
+      
+      if (category.name !== undefined) {
+        updateFields.push('name = ?')
+        values.push(category.name.trim())
+      }
+      
+      if (updateFields.length === 0) {
+        return {
+          success: false,
+          message: '更新するフィールドが指定されていません'
+        }
+      }
+      
+      updateFields.push('updated_at = CURRENT_TIMESTAMP')
+      values.push(id)
+      
+      const updateQuery = `
+        UPDATE categories 
+        SET ${updateFields.join(', ')}
+        WHERE id = ?
+      `
+      
+      const response = await CapacitorSQLite.run({
+        database: this.getDatabaseName(),
+        statement: updateQuery,
+        values: values
+      })
+      
+      this.addDebugLog(`更新結果: ${JSON.stringify(response)}`)
+      
+      return {
+        success: true,
+        message: 'カテゴリが更新されました',
+        data: response
+      }
+    } catch (error) {
+      this.addDebugLog(`カテゴリ更新エラー: ${error}`)
+      return {
+        success: false,
+        message: `カテゴリ更新エラー: ${error}`
+      }
+    }
+  }
+
+  /**
    * カテゴリを削除
    */
   async deleteCategory(id: number): Promise<DatabaseResult> {
